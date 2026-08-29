@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Calculadora de Pegada de Carbono + Árvores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  :root {
+    --ink: #1B3A2F;
+    --canopy: #3A7D57;
+    --moss: #CFE3D4;
+    --soil: #8B5E34;
+    --sun: #E3A72E;
+    --paper: #F7F4EC;
+    --clay: #C4623F;
+  }
+  * { font-family: 'Inter', sans-serif; }
+  body { background-color: var(--paper); margin: 0; }
+  @keyframes growIn {
+    0% { opacity: 0; transform: scale(0.3) translateY(6px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  @keyframes riseIn {
+    0% { opacity: 0; transform: translateY(10px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  input[type="range"] { accent-color: var(--canopy); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module">
+const { useState, useMemo, useEffect } = React;
+
+const INK = "#1B3A2F";
+const CANOPY = "#3A7D57";
+const MOSS = "#CFE3D4";
+const SOIL = "#8B5E34";
+const SUN = "#E3A72E";
+const PAPER = "#F7F4EC";
+
+const TRANSPORT_FACTORS = { car: 0.192, bus: 0.089, bike: 0 };
+const TRANSPORT_OPTIONS = [
+  { id: "car", label: "Carro ou moto", emoji: "🚗" },
+  { id: "bus", label: "Ônibus ou trem", emoji: "🚌" },
+  { id: "bike", label: "Bike ou a pé", emoji: "🚲" },
+];
+
+const ENERGY_ANNUAL = { low: 400, medium: 800, high: 1500 };
+const ENERGY_OPTIONS = [
+  { id: "low", label: "Baixo", desc: "Poucos aparelhos, consumo econômico" },
+  { id: "medium", label: "Médio", desc: "Consumo residencial típico" },
+  { id: "high", label: "Alto", desc: "Ar-condicionado, muitos aparelhos" },
+];
+
+const DIET_ANNUAL = { daily: 1500, moderate: 900, veg: 400 };
+const DIET_OPTIONS = [
+  { id: "daily", label: "Carne todo dia" },
+  { id: "moderate", label: "Carne às vezes" },
+  { id: "veg", label: "Vegetariana ou vegana" },
+];
+
+const RECYCLE_REDUCTION = { always: 200, sometimes: 80, never: 0 };
+const RECYCLE_OPTIONS = [
+  { id: "always", label: "Sempre reciclo" },
+  { id: "sometimes", label: "Às vezes" },
+  { id: "never", label: "Não reciclo" },
+];
+
+const TREE_ABSORPTION_KG = 22;
+const BR_AVERAGE_TON = 2.3;
+
+function Card({ selected, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex-1 min-w-[140px] rounded-2xl p-4 text-left transition-all duration-200 border-2"
+      style={{
+        borderColor: selected ? CANOPY : "#E2DCCB",
+        backgroundColor: selected ? MOSS : "#FFFFFF",
+        boxShadow: selected ? "0 4px 14px rgba(58,125,87,0.25)" : "0 1px 3px rgba(0,0,0,0.04)",
+        transform: selected ? "translateY(-2px)" : "none",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Question({ eyebrow, title, children }) {
+  return (
+    <div className="mb-8">
+      <div className="text-xs font-semibold tracking-widest uppercase mb-1" style={{ color: SOIL, fontFamily: "'JetBrains Mono', monospace" }}>
+        {eyebrow}
+      </div>
+      <h3 className="text-xl mb-3" style={{ color: INK, fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+        {title}
+      </h3>
+      <div className="flex flex-wrap gap-3">{children}</div>
+    </div>
+  );
+}
+
+function Bar({ name, value, max, color }) {
+  const pct = max > 0 ? Math.max((value / max) * 100, 3) : 0;
+  return (
+    <div className="mb-3">
+      <div className="flex justify-between text-sm mb-1" style={{ color: INK }}>
+        <span>{name}</span>
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", color: "#5B6B60" }}>
+          {value.toLocaleString("pt-BR")} kg
+        </span>
+      </div>
+      <div className="w-full rounded-full h-3" style={{ backgroundColor: "#EFEADB" }}>
+        <div
+          className="h-3 rounded-full transition-all duration-700"
+          style={{ width: pct + "%", backgroundColor: color }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [step, setStep] = useState("form");
+  const [transportMode, setTransportMode] = useState(null);
+  const [km, setKm] = useState(100);
+  const [energy, setEnergy] = useState(null);
+  const [diet, setDiet] = useState(null);
+  const [recycle, setRecycle] = useState(null);
+  const [revealed, setRevealed] = useState(0);
+
+  const allAnswered = transportMode && energy && diet && recycle;
+
+  const result = useMemo(() => {
+    if (!allAnswered) return null;
+    const transportTotal = transportMode === "bike" ? 0 : km * 52 * TRANSPORT_FACTORS[transportMode];
+    const energyTotal = ENERGY_ANNUAL[energy];
+    const dietTotal = DIET_ANNUAL[diet];
+    const reduction = RECYCLE_REDUCTION[recycle];
+    const total = Math.max(transportTotal + energyTotal + dietTotal - reduction, 0);
+    const trees = Math.max(Math.ceil(total / TREE_ABSORPTION_KG), 0);
+    const breakdown = [
+      { name: "Transporte", value: Math.round(transportTotal), color: CANOPY },
+      { name: "Energia", value: Math.round(energyTotal), color: SUN },
+      { name: "Alimentação", value: Math.round(dietTotal), color: SOIL },
+    ];
+    const maxVal = Math.max(...breakdown.map((b) => b.value));
+    const top = breakdown.reduce((a, b) => (b.value > a.value ? b : a));
+    return { total, trees, breakdown, reduction, top, maxVal };
+  }, [allAnswered, transportMode, km, energy, diet, recycle]);
+
+  useEffect(() => {
+    if (step === "result" && result) {
+      setRevealed(0);
+      const cap = Math.min(result.trees, 60);
+      let i = 0;
+      const interval = setInterval(() => {
+        i += 1;
+        setRevealed(i);
+        if (i >= cap) clearInterval(interval);
+      }, 35);
+      return () => clearInterval(interval);
+    }
+  }, [step, result]);
+
+  const handleCalculate = () => { if (allAnswered) setStep("result"); };
+  const handleReset = () => {
+    setStep("form");
+    setTransportMode(null);
+    setEnergy(null);
+    setDiet(null);
+    setRecycle(null);
+    setKm(100);
+  };
+
+  const TIPS = {
+    "Transporte": "Trocar o carro por ônibus ou bike em trajetos curtos pode cortar boa parte da sua pegada de transporte.",
+    "Energia": "Desligar aparelhos em stand-by e usar lâmpadas LED reduz o consumo de energia em casa.",
+    "Alimentação": "Reduzir o consumo de carne vermelha para 2-3 vezes por semana já faz diferença significativa.",
+  };
+
+  return (
+    <div className="min-h-screen w-full" style={{ backgroundColor: PAPER }}>
+      <div className="max-w-3xl mx-auto px-5 py-10 sm:py-14">
+        <div className="mb-10" style={{ animation: "riseIn 0.5s ease-out" }}>
+          <div className="text-xs font-semibold tracking-widest uppercase mb-2 flex items-center gap-2" style={{ color: CANOPY, fontFamily: "'JetBrains Mono', monospace" }}>
+            🌲 Feira de Ciências · Sustentabilidade
+          </div>
+          <h1 className="text-3xl sm:text-4xl mb-2" style={{ color: INK, fontFamily: "'Fraunces', serif", fontWeight: 700, letterSpacing: "-0.01em" }}>
+            Quanto pesa o seu carbono?
+          </h1>
+          <p className="text-sm sm:text-base" style={{ color: "#5B6B60" }}>
+            Responda sobre seus hábitos e descubra quantas árvores seriam necessárias
+            para compensar suas emissões durante um ano.
+          </p>
+        </div>
+
+        {step === "form" && (
+          <div style={{ animation: "riseIn 0.5s ease-out" }}>
+            <Question eyebrow="01 · Transporte" title="Como você se desloca no dia a dia?">
+              {TRANSPORT_OPTIONS.map((opt) => (
+                <Card key={opt.id} selected={transportMode === opt.id} onClick={() => setTransportMode(opt.id)}>
+                  <div style={{ fontSize: 20 }}>{opt.emoji}</div>
+                  <div className="mt-2 text-sm font-medium" style={{ color: INK }}>{opt.label}</div>
+                </Card>
+              ))}
+            </Question>
+
+            {transportMode && transportMode !== "bike" && (
+              <div className="mb-8 -mt-4 rounded-2xl p-4" style={{ backgroundColor: "#FFFFFF", border: "1px solid #E2DCCB" }}>
+                <div className="flex justify-between text-sm mb-2" style={{ color: "#5B6B60" }}>
+                  <span>Km rodados por semana</span>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", color: INK, fontWeight: 500 }}>{km} km</span>
+                </div>
+                <input type="range" min="0" max="500" step="10" value={km} onChange={(e) => setKm(Number(e.target.value))} className="w-full" />
+              </div>
+            )}
+
+            <Question eyebrow="02 · Energia" title="Como é o consumo de energia na sua casa?">
+              {ENERGY_OPTIONS.map((opt) => (
+                <Card key={opt.id} selected={energy === opt.id} onClick={() => setEnergy(opt.id)}>
+                  <div style={{ fontSize: 20 }}>⚡</div>
+                  <div className="mt-2 text-sm font-medium" style={{ color: INK }}>{opt.label}</div>
+                  <div className="text-xs mt-0.5" style={{ color: "#7C8A7F" }}>{opt.desc}</div>
+                </Card>
+              ))}
+            </Question>
+
+            <Question eyebrow="03 · Alimentação" title="Qual seu padrão alimentar?">
+              {DIET_OPTIONS.map((opt) => (
+                <Card key={opt.id} selected={diet === opt.id} onClick={() => setDiet(opt.id)}>
+                  <div style={{ fontSize: 20 }}>🍽️</div>
+                  <div className="mt-2 text-sm font-medium" style={{ color: INK }}>{opt.label}</div>
+                </Card>
+              ))}
+            </Question>
+
+            <Question eyebrow="04 · Reciclagem" title="Você separa o lixo reciclável?">
+              {RECYCLE_OPTIONS.map((opt) => (
+                <Card key={opt.id} selected={recycle === opt.id} onClick={() => setRecycle(opt.id)}>
+                  <div style={{ fontSize: 20 }}>♻️</div>
+                  <div className="mt-2 text-sm font-medium" style={{ color: INK }}>{opt.label}</div>
+                </Card>
+              ))}
+            </Question>
+
+            <button
+              onClick={handleCalculate}
+              disabled={!allAnswered}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-full px-7 py-3.5 text-sm font-semibold transition-all"
+              style={{
+                backgroundColor: allAnswered ? CANOPY : "#D8D2C2",
+                color: allAnswered ? "#FFFFFF" : "#9A9382",
+                cursor: allAnswered ? "pointer" : "not-allowed",
+                border: "none",
+              }}
+            >
+              Calcular minha pegada →
+            </button>
+          </div>
+        )}
+
+        {step === "result" && result && (
+          <div style={{ animation: "riseIn 0.5s ease-out" }}>
+            <div className="rounded-3xl p-7 mb-6" style={{ backgroundColor: INK }}>
+              <div className="text-xs font-semibold tracking-widest uppercase mb-2" style={{ color: MOSS, fontFamily: "'JetBrains Mono', monospace" }}>
+                Sua pegada estimada
+              </div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-5xl" style={{ color: "#FFFFFF", fontFamily: "'Fraunces', serif", fontWeight: 700 }}>
+                  {(result.total / 1000).toFixed(2)}
+                </span>
+                <span className="text-lg" style={{ color: MOSS }}>toneladas de CO₂ / ano</span>
+              </div>
+              <div className="mt-3 text-sm" style={{ color: "#AEC4B4" }}>
+                Média per capita no Brasil: ~{BR_AVERAGE_TON} toneladas/ano (estimativa educativa) —{" "}
+                {result.total / 1000 > BR_AVERAGE_TON ? "você está acima da média." : "você está abaixo da média."}
+              </div>
+            </div>
+
+            <div className="rounded-3xl p-6 mb-6" style={{ backgroundColor: "#FFFFFF", border: "1px solid #E2DCCB" }}>
+              <h3 className="text-base mb-4" style={{ color: INK, fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+                De onde vêm suas emissões
+              </h3>
+              {result.breakdown.map((b) => (
+                <Bar key={b.name} name={b.name} value={b.value} max={result.maxVal} color={b.color} />
+              ))}
+              {result.reduction > 0 && (
+                <div className="mt-2 text-sm rounded-xl px-3 py-2" style={{ backgroundColor: MOSS, color: INK }}>
+                  ♻️ Reciclar já reduziu sua pegada em {result.reduction} kg de CO₂ por ano.
+                </div>
+              )}
+              <div className="mt-3 text-sm rounded-xl px-3 py-2" style={{ backgroundColor: "#FBEFE3", color: SOIL }}>
+                💡 Sua maior fonte é <strong>{result.top.name}</strong>. {TIPS[result.top.name]}
+              </div>
+            </div>
+
+            <div className="rounded-3xl p-6 mb-6" style={{ backgroundColor: MOSS }}>
+              <h3 className="text-base mb-1" style={{ color: INK, fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+                Sua floresta de compensação
+              </h3>
+              <p className="text-sm mb-4" style={{ color: "#3F5A48" }}>
+                Seriam necessárias <strong>{result.trees.toLocaleString("pt-BR")} árvores</strong> plantadas
+                e crescendo por um ano para absorver o que você emite
+                (considerando ~{TREE_ABSORPTION_KG} kg de CO₂ por árvore/ano).
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from({ length: Math.min(result.trees, 60) }).map((_, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      fontSize: 22,
+                      display: "inline-block",
+                      opacity: i < revealed ? 1 : 0,
+                      animation: i < revealed ? "growIn 0.4s ease-out" : "none",
+                    }}
+                  >
+                    🌲
+                  </span>
+                ))}
+                {result.trees > 60 && (
+                  <span className="text-sm self-center ml-1" style={{ color: INK, fontWeight: 600 }}>
+                    +{(result.trees - 60).toLocaleString("pt-BR")}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold border-2 transition-all"
+              style={{ borderColor: CANOPY, color: CANOPY, backgroundColor: "transparent" }}
+            >
+              ↺ Calcular de novo
+            </button>
+
+            <div className="mt-6 text-xs flex items-center gap-1.5" style={{ color: "#9A9382" }}>
+              ✨ Valores aproximados, com fins didáticos para feira de ciências.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
